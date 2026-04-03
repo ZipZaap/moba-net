@@ -140,18 +140,19 @@ class Classifier(nn.Module):
 # MobaNet (Combined Model)
 # --------------------------------------------------------------------------------------
 class MobaNet(nn.Module):
-    def __init__(self, 
-                 *,
-                 model: str,
-                 unet_depth: int,
-                 conv_depth: int,
-                 in_channels: int,
-                 seg_classes: int,
-                 cls_classes: int,
-                 seg_dropout: float = 0.0,
-                 cls_dropout: float = 0.0,
-                 inference: bool = False
-                 ):
+    def __init__(
+        self, 
+        *,
+        model: str,
+        unet_depth: int,
+        conv_depth: int,
+        in_channels: int,
+        seg_classes: int,
+        cls_classes: int,
+        seg_dropout: float = 0.0,
+        cls_dropout: float = 0.0,
+        inference: bool = False
+    ):
         """
         Initializes the MobaNet model.
 

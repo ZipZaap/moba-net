@@ -5,7 +5,7 @@ This repository provides an **end-to-end implementation** of a multi-output U-Ne
 ## :key: Key Features
 
 1. **Multi-output architecture**  
-   The network fuses segmentation *and* classification. When a large image is tiled, the classifier decides whether a tile is likely to contain an object boundary; only those positive tiles are forwarded to the segmentation branch. This approach:
+   The network fuses segmentation and classification. When a large image is tiled, the classifier decides whether a tile is likely to contain an object boundary; only those positive tiles are forwarded to the segmentation branch. This approach:
 
    * Avoids unnecessary computation.
    * Enables boundary-aware losses during decoder training.

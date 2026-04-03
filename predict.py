@@ -63,7 +63,11 @@ class Predictor:
         else:
             raise ValueError("Checkpoint must be an existing file with .pth extension.")
 
-    def predict(self, input: str | Path | np.ndarray | torch.Tensor) -> torch.Tensor:
+    def predict(
+        self, 
+        input: str | Path | np.ndarray | torch.Tensor,
+        cls_threshold: float | None = None,
+        ) -> torch.Tensor:
         """
         Predicts the output for the given input image.
 
@@ -137,7 +141,7 @@ class Predictor:
 
         tensor = tensor.to(self.device)
         with torch.inference_mode():
-            return self.model(tensor)["seg"]
+            return self.model(tensor, cls_threshold)["seg"]
 
 if __name__ == "__main__":
     # Load the YAML into a dict
@@ -156,6 +160,7 @@ if __name__ == "__main__":
 
     # Run prediction on batched images
     for batch in loader:
-        ids, images = batch["id"], batch["image"].to(CONF.DEFAULT_DEVICE)
-        masks = model.predict(images)
-        save_predictions(CONF.MSK_DIR, masks, ids)
+        ids, img_batch = batch["id"], batch["image"].to(CONF.DEFAULT_DEVICE)
+        mask_batch = model.predict(img_batch, CONF.CLS_THRESHOLD)
+        mask_batch = (mask_batch > CONF.SEG_THRESHOLD)
+        save_predictions(CONF.MSK_DIR, mask_batch, ids)

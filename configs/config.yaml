@@ -250,10 +250,12 @@ CMA_COEFFICIENTS:
   type: dict
   help: Coefficients that define the contribution of each metric to the overall `CMA`.
 
-DISTANCE_METRICS:
+SDM_FROM_MASK:
   default: True
   type: bool
-  help: Whether to calculate distance metrics (ASD, HD95) during evaluation.
+  help: |
+    Whether to calculate SDMs from the predicted masks during evaluation. 
+    If `False`, SDMs are calculated from the model's SDM branch output.
 
 # =====================================================
 # DISTRIBUTED DATA PARALLEL (DDP)

@@ -441,7 +441,7 @@ class Validator:
             )
 
     @classmethod
-    def _validate_distance_metrics(cls, value, options):
+    def _validate_sdm_from_mask(cls, value, options):
         pass
 
     # --- DDP SETTINGS ---

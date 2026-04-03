@@ -25,7 +25,6 @@ class SegmentationMetrics:
             - `.CMA_COEFFICIENTS` (dict[str, int]): Coefficients for the Combined Mean Accuracy (CMA) calculation.
         """
 
-        self.cfg: Config = cfg
         self.imsize: tuple[int, int] = cfg.INPUT_SIZE
         self.K: int = cfg.SDM_KERNEL_SIZE
         self.dist: str = cfg.SDM_DISTANCE
@@ -95,7 +94,11 @@ class SegmentationMetrics:
         return per_class_iou[valid].mean()
 
     def boundary(
-        self, pd_mask: torch.Tensor, gt_mask: torch.Tensor, gt_sdm: torch.Tensor
+        self, 
+        gt_mask: torch.Tensor, 
+        gt_sdm: torch.Tensor,
+        pd_mask: torch.Tensor, 
+        pd_sdm: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, ...]:
         """
         Computes the boundary (SDM-based) metrics between predicted and ground truth masks.
@@ -110,6 +113,10 @@ class SegmentationMetrics:
 
         gt_sdm : torch.Tensor (B, 1, H, W)
             Ground truth Signed Distance Map.
+            
+        pd_sdm : torch.Tensor (B, 1, H, W) | None
+            Predicted Signed Distance Map. If `None`, the SDM 
+            will be computed from the predicted mask.
 
         Returns
         -------
@@ -119,8 +126,13 @@ class SegmentationMetrics:
             - Hausdorff Distance (HD95)
         """
 
-        # mask (B, C, H, W) → sdm (B, 1, H, W)
-        pd_sdm = torch.abs(SDF.sdf(pd_mask, self.K, self.dist, self.norm))
+        if pd_sdm is None:
+            # mask (B, C, H, W) → sdm (B, 1, H, W)
+            pd_sdm = torch.abs(SDF.sdf(pd_mask, self.K, self.dist, self.norm))
+        else:
+            # alternatively, directly pass the predicted SDM from the model.
+            pd_sdm = torch.abs(pd_sdm)
+        
         gt_sdm = torch.abs(gt_sdm)
 
         # mask (B, C, H, W) → edges (B, 1, H, W)
@@ -138,8 +150,6 @@ class SegmentationMetrics:
         # compute distances
         asd, hd95 = [], []
         for gE, pE, gS, pS in zip(gt_edges, pd_edges, gt_sdm, pd_sdm):
-            # d1 = pS[gE == True]
-            # d2 = gS[pE == True]
             d1, d2 = pS[gE], gS[pE]
             d = torch.cat((d1, d2))
 
@@ -218,7 +228,7 @@ class Accuracy:
             - `.SEG_CLASSES` (int): Corresponds to the boundary class label in the classification task.
         """
         
-        self.distance_metrics: bool = cfg.DISTANCE_METRICS
+        self.sdm_from_mask: bool = cfg.SDM_FROM_MASK
         self.cls_threshold: float | None = cfg.CLS_THRESHOLD
         self.worldsize: int = cfg.WORLD_SIZE
         self.boundary_id: int = cfg.SEG_CLASSES
@@ -296,15 +306,20 @@ class Accuracy:
                 iou = self.segMetrics.iou(pd_mask, gt_mask)
                 self.metrics.setdefault("DSC", []).append(dsc)
                 self.metrics.setdefault("IoU", []).append(iou)
-
-                if self.distance_metrics:
-                    valid = (gt_cls == self.boundary_id)
-                    if valid.any():
-                        asd, hd95 = self.segMetrics.boundary(
-                            pd_mask[valid], gt_mask[valid], gt_sdm[valid]
-                        ) # alternatively we can also pass pd_sdm directly
-                        self.metrics.setdefault("ASD", []).append(asd)
-                        self.metrics.setdefault("HD95", []).append(hd95)
+                
+            if pd_mask is not None and pd_sdm is not None:
+                valid = (gt_cls == self.boundary_id)
+                if valid.any():
+                    gt_mask = gt_mask[valid]
+                    gt_sdm = gt_sdm[valid]
+                    pd_mask = pd_mask[valid]
+                    pd_sdm = pd_sdm[valid] if not self.sdm_from_mask else None
+                    
+                    asd, hd95 = self.segMetrics.boundary(
+                        gt_mask, gt_sdm, pd_mask, pd_sdm
+                    )
+                    self.metrics.setdefault("ASD", []).append(asd)
+                    self.metrics.setdefault("HD95", []).append(hd95)
 
     def compute_avg(self, length: int) -> dict[str, float]:
         """
