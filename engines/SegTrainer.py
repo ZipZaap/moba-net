@@ -16,34 +16,41 @@ class SegTrainer():
                  lr_scheduler: LRScheduler, 
                  loaders: tuple[DataLoader, DataLoader],
                  logger: Logger,
+                 loss: Loss,
+                 accuracy: Accuracy,
                  cfg: Config):
         """
         Initializes the SegTrainer. This class is responsible for training and evaluating the model.
         It handles the training loop, validation, and logging of metrics.
 
-        Args
-        ----
-            model : torch.nn.Module
-                Model to be trained.
+        Parameters
+        ----------
+        model : torch.nn.Module
+            Model to be trained.
 
-            optimizer : Optimizer
-                Optimizer for the model.
+        optimizer : Optimizer
+            Optimizer for the model.
 
-            lr_scheduler : LRScheduler
-                Learning rate scheduler.
+        lr_scheduler : LRScheduler
+            Learning rate scheduler.
 
-            loaders : tuple[DataLoader, DataLoader]
-                Tuple of train and test loaders.
+        loaders : tuple[DataLoader, DataLoader]
+            Tuple of train and test loaders.
 
-            logger : Logger
-                Logger for logging metrics and saving model checkpoints.
+        logger : Logger
+            Logger for logging metrics and saving model checkpoints.
+        
+        loss : Loss
+            Loss function for training.
+        
+        accuracy : Accuracy
+            Accuracy metric for evaluation.
 
-            cfg : Config
-                Configuration object that contains the following attributes:
-                - `.DEVICE` (str): Device to run the model on.
-                - `.TRAIN_EPOCHS` (int): Number of training epochs.
-                - `.WARMUP_EPOCHS` (int): Number of warmup epochs.
-                - `.EVAL_INTERVAL` (int): Evaluation interval in epochs.
+        cfg : Config
+            Configuration object that contains the following attributes:
+            - `.DEVICE` (str): Device to run the model on.
+            - `.TRAIN_EPOCHS` (int): Number of training epochs.
+            - `.WARMUP_EPOCHS` (int): Number of warmup epochs.
         """
 
         self.model = model
@@ -51,30 +58,48 @@ class SegTrainer():
         self.lr_scheduler = lr_scheduler
         self.trainLoader, self.testLoader = loaders
         self.logger = logger
+        self.loss = loss
+        self.accu = accuracy
 
         self.device: str = cfg.DEVICE
         self.train_epochs: int = cfg.TRAIN_EPOCHS
         self.warmup_epochs: int = cfg.WARMUP_EPOCHS
-        self.eval_interval: int = cfg.EVAL_INTERVAL
-
-        self.loss: Loss = Loss(cfg)
-        self.accu: Accuracy = Accuracy(cfg)
+        
+    def _set_model_state(self, train: bool):
+        """
+        Safely sets the model to train or eval mode, ensuring frozen 
+        sub-modules remain in eval mode to protect BatchNorm/Dropout.
+        
+        Parameters
+        ----------
+        train : bool
+            If True, sets model to train mode; if False, sets to eval mode.
+        """
+        if train:
+            self.model.train() 
+            for child in self.model.children():
+                params = list(child.parameters())
+                if params and not any(p.requires_grad for p in params):
+                    child.eval() 
+        else:
+            self.model.eval()
             
     def _warmup_epoch(self, loader: DataLoader):
         """
         Warmup training for the model by gradually increasing the learning rate.
 
-        Args
-        ----
-            loader : DataLoader
-                DataLoader for the training data.
+        Parameters
+        ----------
+        loader : DataLoader
+            DataLoader for the training data.
         """
         
-        self.loss.reset()
-        self.model.train() 
+        self._set_model_state(train=True)
+        
         with torch.set_grad_enabled(True):
 
             for batch in loader:
+                
                 batch = {k:v.to(self.device) for k,v in batch.items()}
                 logits = self.model(batch['image'])
 
@@ -85,7 +110,6 @@ class SegTrainer():
 
         self.lr_scheduler.step()
 
-
     def _learn_epoch(self,
                      loader: DataLoader,
                      train: bool,
@@ -93,24 +117,24 @@ class SegTrainer():
         """
         Runs a single epoch of training or evaluation
 
-        Args
-        ----
-            loader : DataLoader
-                DataLoader for the training or evaluation data.
+        Parameters
+        ----------
+        loader : DataLoader
+            DataLoader for the training or evaluation data.
 
-            train : bool
-                If True, runs training; if False, runs evaluation.
+        train : bool
+            If True, runs training; if False, runs evaluation.
             
         Returns
         -------
-            avgLoss : dict[str, float]
-                Average loss for the epoch.
-                
-            avgAccu : dict[str, float]
-                Average accuracy for the epoch.
+        avgLoss : dict[str, float]
+            Average loss for the epoch.
+            
+        avgAccu : dict[str, float]
+            Average accuracy for the epoch.
         """
         
-        self.model.train() if train else self.model.eval()
+        self._set_model_state(train)
 
         with torch.set_grad_enabled(train):
             for batch in loader:
@@ -133,7 +157,6 @@ class SegTrainer():
         
         return avgLoss, avgAccu
 
-
     def train(self):
         """
         Main training loop; iterates over epochs and runs warmup, training & evaluation.
@@ -150,13 +173,10 @@ class SegTrainer():
                 self._warmup_epoch(self.trainLoader)
             else:
                 self.logger.start_timer()
-                
                 trainLoss, trainAccu = self._learn_epoch(self.trainLoader, train=True)
-                if epoch % self.eval_interval == 0 or epoch == self.train_epochs:
-                    testLoss, testAccu = self._learn_epoch(self.testLoader, train=False)
-                    self.logger.update((trainLoss, testLoss, trainAccu, testAccu), self.model)
-                    self.logger.log_metrics()
-
+                testLoss, testAccu = self._learn_epoch(self.testLoader, train=False)
+                self.logger.update((trainLoss, testLoss, trainAccu, testAccu), self.model)    
+                self.logger.log_metrics()
                 self.logger.reset_timer()
 
             self.logger.info()

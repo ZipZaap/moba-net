@@ -29,18 +29,18 @@ def parse_cli_args(cfg: dict[str, dict],
     """
     Update the configuration dictionary with command line arguments.
 
-    Args
-    ----
-        cfg : dict[str, dict]
-            Configuration dictionary with keys corresponding to parameter names.
+    Parameters
+    ----------
+    cfg : dict[str, dict]
+        Configuration dictionary with keys corresponding to parameter names.
 
-        inference : bool
-            If True, only inference-related keys will be considered.
+    inference : bool
+        If True, only inference-related keys will be considered.
 
     Returns
     -------
-        cfg : dict[str, dict]
-            Configuration dictionary updated with command line arguments.
+    cfg : dict[str, dict]
+        Configuration dictionary updated with command line arguments.
     """
 
     inference_keys: list[str] = [
@@ -52,7 +52,7 @@ def parse_cli_args(cfg: dict[str, dict],
         "CLS_THRESHOLD"
     ]
 
-    type_mapping = {
+    type_mapping: dict[str, type] = {
         'int': int,
         'float': float,
         'str': str,
@@ -97,7 +97,7 @@ def parse_cli_args(cfg: dict[str, dict],
         if shown_default is not None:
             setattr(action, "shown_default", shown_default)
 
-    # Parse the command line arguments amd update the configuration
+    # Parse the command line arguments and update the configuration
     args = vars(parser.parse_args())
     for key, value in args.items():
         if value is not None:

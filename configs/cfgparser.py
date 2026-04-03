@@ -20,13 +20,13 @@ class Config:
         """
         Initialize the configuration object.
 
-        Args
-        ----
-            cfg : dict
-                Configuration dictionary containing key:value pairs.
+        Parameters
+        ----------
+        cfg : dict
+            Configuration dictionary containing key:value pairs.
 
-            inference : bool
-                Whether the configuration is for inference (default: False).
+        inference : bool
+            Whether the configuration is for inference (default: False).
 
         Examples
         --------
@@ -94,8 +94,8 @@ class Config:
 
         Returns
         -------
-            id : str
-                Next available experiment ID (e.g., 'exp_7' if 'exp_6' exists).
+        id : str
+            Next available experiment ID (e.g., 'exp_7' if 'exp_6' exists).
         """
 
         exp_nums = []
@@ -114,51 +114,52 @@ class Config:
         This includes paths, derived numerical values, and model-specific settings.
         """
 
-        # Core paths ---------------------------------------------------------------------
+        # Core paths -------------------------------------------------------------------
         self.DATASET_DIR = Path(self.DATASET_DIR)
         self.CHECKPOINT = Path(self.CHECKPOINT) if self.CHECKPOINT else None
 
-        # Derived values -----------------------------------------------------------------
+        # Derived values ---------------------------------------------------------------
         self.DEFAULT_DEVICE = f'cuda:{self.GPUs[0]}' if self.GPUs else 'cuda:0'
 
         if self._inference:
-            # Prediction dataset paths ---------------------------------------------------
+            # Prediction dataset paths -------------------------------------------------
             self.PREDICT_DIR = self.DATASET_DIR / 'predict'
             self.IMG_DIR = self.PREDICT_DIR / 'images'
             self.MSK_DIR = self.PREDICT_DIR / 'masks'
 
         else:
-            # ID strings -----------------------------------------------------------------
-            self.EXP_ID = self.EXP_ID if self.EXP_ID else self._exp_id()
-            self.RUN_ID = self.RUN_ID if self.RUN_ID else f"{self.MODEL}({self.TRAIN_SET})"
+            # Basic paths --------------------------------------------------------------
+            self.BASE_IMG_DIR = self.DATASET_DIR / 'images'
+            self.BASE_MSK_DIR = self.DATASET_DIR / 'masks'
+            self.LBL_JSON = self.DATASET_DIR / 'labels.json'
 
-            # Training dataset paths -----------------------------------------------------
+            # Training dataset paths ---------------------------------------------------
             self.TRAIN_DIR = self.DATASET_DIR / 'train'
             self.IMG_DIR = self.TRAIN_DIR / 'images'
             self.MSK_DIR = self.TRAIN_DIR / 'masks'
             self.SDM_DIR = self.TRAIN_DIR / 'sdms'
-            self.LBL_JSON = self.TRAIN_DIR / 'labels.json'
             self.TTS_JSON = self.TRAIN_DIR / 'tts.json'
 
-            # Results paths --------------------------------------------------------------
+            # Results paths & ID strings -----------------------------------------------
             self.RESULTS_DIR = Path(self.RESULTS_DIR)
+            self.EXP_ID = self.EXP_ID if self.EXP_ID else self._exp_id()
+            self.RUN_ID = self.RUN_ID if self.RUN_ID else f"{self.MODEL}({self.TRAIN_SET})"
             self.EXP_DIR = self.RESULTS_DIR / self.EXP_ID
             self.LOG_JSON = self.EXP_DIR / f"{self.RUN_ID}-log.json"
             self.BEST_EPOCH_JSON = self.EXP_DIR / f"{self.RUN_ID}-best.json"
-            self.MODEL_PTH = self.EXP_DIR / f"{self.RUN_ID}-model.pth"
 
-            # Warn if EXP_DIR exists and contains files with current RUN_ID
-            if any(self.EXP_DIR.glob(f"*{self.RUN_ID}*")):
-                print(f"[WARN]: Experiment directory '{self.EXP_DIR}' "
-                      f"contains files matching RUN_ID '{self.RUN_ID}'; "
-                      f"they will be overwritten.")
+            # # Warn if EXP_DIR exists and contains files with current RUN_ID
+            # if any(self.EXP_DIR.glob(f"*{self.RUN_ID}*")):
+            #     print(f"[WARN] Experiment directory '{self.EXP_DIR}' "
+            #           f"contains files matching RUN_ID '{self.RUN_ID}'; "
+            #           f"they will be overwritten.") # may print many times
 
-            # Derived values -------------------------------------------------------------
+            # Derived values -----------------------------------------------------------
             self.NUM_KFOLDS = int(1 / self.TEST_SPLIT)
             self.WORLD_SIZE = len(self.GPUs)
             self.BATCH_SIZE = int(self.BATCH_SIZE / self.WORLD_SIZE)
 
-            # Model-specific settings ----------------------------------------------------
+            # Model-specific settings --------------------------------------------------
             model_freeze_layers = {
                 'MobaNet_EDC': [],
                 'MobaNet_ED': ['classifier'],
@@ -176,8 +177,8 @@ class Config:
 
         Returns
         -------
-            model_cfg : dict[str, Any]
-                Dictionary containing the model-specific parameters.
+        model_cfg : dict[str, Any]
+            Dictionary containing the model-specific parameters.
         """
 
         model_cfg: dict[str, Any] = {}
@@ -192,8 +193,8 @@ class Config:
 
         Returns
         -------
-            cfg_dict : dict[str, Any]
-                Dictionary containing all the public `Config` attributes.
+        cfg_dict : dict[str, Any]
+            Dictionary containing all the public `Config` attributes.
         """
         
         cfg_dict = {}

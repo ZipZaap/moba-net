@@ -14,33 +14,33 @@ class Logger:
         """
         Initialize the logger and login to wandb.
 
-        Args
-        ----
-            cfg : Config
-                Configuration object containing the following attributes:
-                - `.RANK` (int): The rank of the process (0 for master).
-                - `.LOG_WANDB` (bool): Whether to log to wandb.
-                - `.LOG_LOCAL` (bool): Whether to log to a local file.
-                - `.SAVE_MODEL` (bool): Whether to save the model.
-                - `.EXP_ID` (str): The experiment ID.
-                - `.RUN_ID` (str): The run ID.
-                - `.LOG_JSON` (Path): The path to the local log file.
-                - `.BEST_EPOCH_JSON` (Path): The path to save the best epoch log.
-                - `.MODEL_PTH` (Path): The path to save the model.
-                - `.TRAIN_EPOCHS` (int): The total number of training epochs.
-                - `.WARMUP_EPOCHS` (int): The number of warmup epochs.
-                - `.EVAL_METRIC` (str): Metric used to identify the best epoch.
+        Parameters
+        ----------
+        cfg : Config
+            Configuration object containing the following attributes:
+            - `.RANK` (int): The rank of the process (0 for master).
+            - `.LOG_WANDB` (bool): Whether to log to wandb.
+            - `.LOG_LOCAL` (bool): Whether to log to a local file.
+            - `.SAVE_MODEL` (bool): Whether to save the model.
+            - `.EXP_ID` (str): The experiment ID.
+            - `.RUN_ID` (str): The run ID.
+            - `.LOG_JSON` (Path): The path to the local log file.
+            - `.BEST_EPOCH_JSON` (Path): The path to save the best epoch log.
+            - `.MODEL_PTH` (Path): The path to save the model.
+            - `.TRAIN_EPOCHS` (int): The total number of training epochs.
+            - `.WARMUP_EPOCHS` (int): The number of warmup epochs.
+            - `.EVAL_METRIC` (str): Metric used to identify the best epoch.
         """
         self.cfg: Config = cfg
         self.rank0: bool = (cfg.RANK == 0)
+        self.savedir: Path = cfg.EXP_DIR
         self.log_wandb: bool = (cfg.LOG_WANDB and self.rank0)
         self.log_local: bool = (cfg.LOG_LOCAL and self.rank0)
-        self.save_model: bool = (cfg.SAVE_MODEL and self.rank0)
+        self.checkpoint_interval: int = cfg.CHECKPOINT_INTERVAL
         self.exp_id: str = cfg.EXP_ID
         self.run_id: str = cfg.RUN_ID
         self.log_json: Path = cfg.LOG_JSON
         self.best_epoch_json: Path = cfg.BEST_EPOCH_JSON
-        self.model_pth: Path = cfg.MODEL_PTH
         self.train_epochs: int = cfg.TRAIN_EPOCHS
         self.warmup_epochs: int = cfg.WARMUP_EPOCHS
         self.eval_metric: str = cfg.EVAL_METRIC
@@ -50,13 +50,29 @@ class Logger:
             'TTR': '\u2191', 'DSC': '\u2191', 'IoU': '\u2191',
             'ASD': '\u2193', 'HD95': '\u2193', 'AD': '\u2193', 'D95': '\u2193', 'CMA': '\u2191'
         }
-
+        
         if self.log_wandb:
             wandb.login()
+        
+        if self.log_local:
+            self.savedir.mkdir(parents=True, exist_ok=True)
+            
+    def _create_checkpoint(self, model: torch.nn.Module | DistributedDataParallel):
+        """Create a checkpoint dictionary containing the model weights and config."""
+        
+        if isinstance(model, DistributedDataParallel):
+            model = model.module
+
+        checkpoint = {
+            "weights": model.state_dict(),
+            "config": self.cfg.export()
+        }
+        
+        return checkpoint
 
     def init_run(self):
         """
-        Initialize the wandb run and local file.
+        Initialize the wandb run and local log file.
         """
         if self.log_wandb:
             wandb.init(project = self.exp_id,
@@ -68,45 +84,44 @@ class Logger:
 
     def end_run(self):
         """
-        End the run and save the local file.
+        End the run and save the local log file.
         """
         if self.log_wandb:
             wandb.finish()
 
         if self.log_local:
-            self.cfg.EXP_DIR.mkdir(parents=True, exist_ok=True)
             with self.log_json.open('w') as f:
                 json.dump(self.run_summary, f)
-
-        if self.save_model:
-            self.cfg.EXP_DIR.mkdir(parents=True, exist_ok=True)
-            torch.save(self.checkpoint, self.model_pth)
-            with self.best_epoch_json.open('w') as f:
-                json.dump(self.best_epoch_log, f)
 
     def set_epoch(self, epoch: int):
         """
         Set the epoch.
 
-        Args
-        ----
-            epoch : int
-                The current epoch.
+        Parameters
+        ----------
+        epoch : int
+            The current epoch.
         """
         self.epoch = epoch
 
-    def update(self, 
-               metrics: tuple[dict, ...], 
-               model: torch.nn.Module | DistributedDataParallel):
+    def update(
+        self, 
+        metrics: tuple[dict, ...], 
+        model: torch.nn.Module | DistributedDataParallel
+    ):
         """
         Update the `epoch_log` dictionary with the values for the current epoch.
         Additionally, update the `best_epoch_log` if the main evaluation metric for the 
-        current epoch outperforms the previous best. Store the model checkpoint if `save_model == True`.
+        current epoch outperforms the previous best. Store the model checkpoint 
+        if `save_model == True`.
 
-        Args
-        ----
-            data : tuple[dict, ...]
-                The training and testing metrics.
+        Parameters
+        ----------
+        metrics : tuple[dict, ...]
+            The training and testing metrics.
+            
+        model : torch.nn.Module | DistributedDataParallel
+            The model to be checkpointed.
         """
         if self.rank0:
             self.trainLoss, self.testLoss, self.trainAccu, self.testAccu = metrics
@@ -123,19 +138,18 @@ class Logger:
             }
 
             self.epoch_log = self.losses | self.metrics
-           
+            self.checkpoint = self._create_checkpoint(model)
+            
             if self.testAccu[self.eval_metric] >= self.maxacc:
                 self.maxacc = self.testAccu[self.eval_metric]
                 self.best_epoch_log = {'epoch': self.epoch} | self.epoch_log
-
-                if self.save_model:
-                    if isinstance(model, DistributedDataParallel):
-                        model = model.module
-
-                    self.checkpoint = {
-                        "weights": model.state_dict(),
-                        "config": self.cfg.export()
-                    }
+                
+                torch.save(self.checkpoint, self.savedir / f"{self.run_id}-best.pth")
+                with self.best_epoch_json.open('w') as f:
+                    json.dump(self.best_epoch_log, f)
+                
+            if self.checkpoint_interval and self.epoch % self.checkpoint_interval == 0:
+                torch.save(self.checkpoint, self.savedir / f"{self.run_id}-e{self.epoch}.pth")
 
     def log_metrics(self):
         """

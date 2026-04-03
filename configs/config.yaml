@@ -3,7 +3,7 @@
 # DIRECTORIES
 # =====================================================
 DATASET_DIR: 
-  default: D:/DataStorage/SemSeg/ver1
+  default: D:/DataStorage/Segmentation/
   type: str
   help: Path to the dataset folder.
 
@@ -54,7 +54,7 @@ DEFAULT_FOLD:
   help: Default fold to use if cross-validation is disabled.
 
 NUM_WORKERS:
-  default: 1
+  default: 4
   type: int
   help: Number of subprocesses to use in PyTorch DataLoader. If set to 0, data loading occurs in the main process.
 
@@ -62,7 +62,7 @@ NUM_WORKERS:
 # MODEL CONFIGURATION
 # =====================================================
 MODEL: 
-  default: MobaNet_ED
+  default: UNet
   type: str
   choices: [MobaNet_EDC, MobaNet_ED, MobaNet_EC, MobaNet_C, MobaNet_D, UNet]
   help: |
@@ -108,6 +108,37 @@ BATCH_SIZE:
   type: int
   help: Batch size for training, inference and sdm calculation.
 
+# =====================================================
+# TRAINING OBJECTIVES
+# =====================================================
+LOSS:
+  default: [SoftDICE]
+  type: list
+  choices: [SoftDICE, HardDICE, IoU, SegCE, wSegCE, MAE, cMAE, sMAE, ClsCE]
+  help: |
+    List of loss functions to be used for training. 
+    Each loss function corresponds to a specific branch of the model.
+
+    Segmentation branch:
+      * SoftDICE: Soft (probabilistic) DICE loss
+      * HardDICE: Hard (discrete) DICE loss
+      * IoU:      Intersection-over-Union loss
+      * SegCE:    Segmentation Cross-Entropy loss
+      * wSegCE:   SDM-weighted Segmentation Cross-Entropy loss
+
+    Signed Distance Map (SDM) branch:
+      * MAE:  Mean Absolute Error loss
+      * cMAE: Clamped MAE loss
+      * sMAE: Signed MAE loss
+
+    Classification branch:
+      * ClsCE: Classification Cross-Entropy loss
+
+STATIC_WEIGHTS:
+  default: null
+  type: list
+  help: Weights for the loss components. If set to `null`, adaptive weighting is used.
+
 # --- Segmentation Branch --- #
 SEG_CLASSES:
   default: 2
@@ -118,6 +149,12 @@ SEG_DROPOUT:
   default: 0.1
   type: float
   help: Dropout value for the decoder/encoder in segmentation branch.
+
+# --- SDM Branch --- #
+CLAMP_DELTA:
+  default: 0.2
+  type: float
+  help: Clamping delta applied to the SDM kernel when calculating `cMAE` loss.
 
 # --- Classification Branch --- #
 CLS_CLASSES:
@@ -131,7 +168,7 @@ CLS_DROPOUT:
   help: Dropout value for the classification head.
 
 CLS_THRESHOLD:
-  default: 0.7
+  default: null
   type: float
   help: Classification threshold; only probabilities above this yield a positive classification.
 
@@ -159,7 +196,7 @@ WARMUP_EPOCHS:
   help: Number of warmup epochs to reach BASE_LR. If set to 0, no warmup is performed.
 
 TRAIN_EPOCHS:
-  default: 200
+  default: 300
   type: int
   help: Number of training epochs, excluding the warmup.
 
@@ -167,7 +204,7 @@ TRAIN_EPOCHS:
 # SIGNED DISTANCE MAP (SDM) PARAMETERS
 # =====================================================
 SDM_KERNEL_SIZE: 
-  default: 7
+  default: 11
   type: int
   help: Kernel size for SDM estimation.
 
@@ -187,100 +224,36 @@ SDM_NORMALIZATION:
       * dynamic_max: by the max distance value of each individual SDM.
       * static_max:  by the global max distance value (depends on `SDM_DISTANCE`).
 
-SDM_SMOOTHING:
-  default: False
-  type: bool
-  help: |
-    Whether the multi-class SDM is calculated in a smooth or discrete manner:
-      * If `True`:  derived from the logits smoothly using `logsumexp`.
-      * If `False`: derived from the logits using `torch.min()` operation.
-
-SDM_SMOOTHING_ALPHA:
-  default: 15.0
-  type: float
-  help: Smoothing factor for `logsumexp`; only relevant if `SDM_SMOOTHING == True`.
-
-# =====================================================
-# LOSS CONFIGURATION
-# =====================================================
-LOSS:
-  default: SoftDICE
-  type: str
-  choices: [SoftDICE, HardDICE, IoU, SegCE, wSegCE, ClsCE, MAE, cMAE, sMAE, Boundary]
-  help: | 
-    Loss function or a combination of loss functions (separated by `_`) used to train the model:
-      * SoftDICE: Soft (probabilistic) DICE loss  
-      * HardDICE: Hard (discrete) DICE loss  
-      * IoU:      Intersection-over-Union loss  
-      * SegCE:    Segmentation Cross-Entropy loss  
-      * wSegCE:   SDM-weighted Segmentation Cross-Entropy loss  
-      * ClsCE:    Classification Cross-Entropy loss  
-      * MAE:      Mean Absolute Error loss  
-      * cMAE:     Clamped MAE loss  
-      * sMAE:     Signed MAE loss  
-      * Boundary: Boundary loss  
-    For detailed information on each loss function, see `model/loss.py`.
-
-ADAPTIVE_WEIGHTS:
-  default: False
-  type: bool
-  help: Automatically balance contributions of loss components if combined loss is used.
-
-STATIC_WEIGHTS:
-  default: null
-  type: list
-  help: Static weights for the loss components. Only relevant if `ADAPTIVE_WEIGHTS == False`.
-        If set to `null`, each loss is weighted equally.
-
-CLAMP_DELTA:
-  default: 0.2
-  type: float
-  help: Clamping delta applied to the SDM kernel when calculating `cMAE` loss.
-
-SIGMOID_STEEPNESS:
-  default: 1000
-  type: int
-  help: |
-    Determines the steepness of the Sigmoid in `DICE`, `IoU` and `sMAE` losses.
-    Higher values yield a steeper curve and a closer approximation of the step function.
-
 # =====================================================
 # EVALUATION SETTINGS
 # =====================================================
-SAVE_MODEL:
-  default: True
-  type: bool
-  help: Whether to save the trained model. 
-
-EVAL_INTERVAL:
-  default: 1
+CHECKPOINT_INTERVAL:
+  default: null
   type: int
-  help: Interval in epochs at which to evaluate the model on the validation set.
+  help: Interval in epochs at which to save model checkpoints.
 
 EVAL_METRIC:
-  default: TTR
+  default: CMA
   type: str
-  choices: ['TTR', 'CMA', 'DSC', 'IoU', 'ASD', 'AD', 'HD95', 'D95']
+  choices: ['TTR', 'DSC', 'IoU', 'ASD', 'HD95', 'CMA']
   help: |
     Best epoch selection metric:
       * TTR:  True-to-test ratio. Measures classification accuracy.
       * DSC:  DICE score. Measures global overlap.
       * IoU:  Intersection over Union score. Measures global overlap, but penalizes false positives more harshly.
       * ASD:  Average Symmetric Distance. Measures the mean distance between the boundaries of ground-truth and prediction.
-      * AD:   Average one-way Distance. Relaxes the impact of false-positives.
       * HD95: Hausdorff Distance 95th percentile. Measures the worst-case boundary discrepancy.
-      * D95:  One-way Distance 95th percentile. Relaxes the impact of false-positives.
       * CMA:  Combined Mean Accuracy. A weighted combination of the above.
 
 CMA_COEFFICIENTS:
-  default: {'DSC': 1, 'IoU': 1, 'ASD': 0, 'AD': 0, 'HD95': 0, 'D95': 0}
+  default: {'DSC': 1, 'IoU': 1, 'ASD': 2, 'HD95': 0}
   type: dict
   help: Coefficients that define the contribution of each metric to the overall `CMA`.
 
 DISTANCE_METRICS:
-  default: False
+  default: True
   type: bool
-  help: Whether to calculate distance metrics (ASD, AD, HD95, D95) during evaluation.
+  help: Whether to calculate distance metrics (ASD, HD95) during evaluation.
 
 # =====================================================
 # DISTRIBUTED DATA PARALLEL (DDP)
@@ -309,17 +282,17 @@ NCCL_P2P:
 # LOGGER SETTINGS
 # =====================================================
 LOG_WANDB:
-  default: True
+  default: False
   type: bool
   help: Enable logging to Weights and Biases.
 
 LOG_LOCAL:
-  default: True
+  default: False
   type: bool
   help: Enable saving logs locally.
 
 EXP_ID:
-  default: exp_0
+  default: null
   type: str
   help: Experiment identifier. Will be generated automatically if set to `null`.
 

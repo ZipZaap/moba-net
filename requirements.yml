@@ -11,3 +11,4 @@ dependencies:
   - opencv
   - git
   - conda-forge::albumentations
+  - conda-forge::wandb
