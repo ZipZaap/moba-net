@@ -147,13 +147,7 @@ class Config:
             self.EXP_DIR = self.RESULTS_DIR / self.EXP_ID
             self.LOG_JSON = self.EXP_DIR / f"{self.RUN_ID}-log.json"
             self.BEST_EPOCH_JSON = self.EXP_DIR / f"{self.RUN_ID}-best.json"
-
-            # # Warn if EXP_DIR exists and contains files with current RUN_ID
-            # if any(self.EXP_DIR.glob(f"*{self.RUN_ID}*")):
-            #     print(f"[WARN] Experiment directory '{self.EXP_DIR}' "
-            #           f"contains files matching RUN_ID '{self.RUN_ID}'; "
-            #           f"they will be overwritten.") # may print many times
-
+    
             # Derived values -----------------------------------------------------------
             self.NUM_KFOLDS = int(1 / self.TEST_SPLIT)
             self.WORLD_SIZE = len(self.GPUs)

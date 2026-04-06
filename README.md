@@ -15,7 +15,7 @@ This repository provides an **end-to-end implementation** of a multi-output U-Ne
    Metrics such as Average Symmetric Surface Distance (ASD) and Hausdorff Distance 95th percentile (HD95) rely on Signed Distance Maps (SDMs) computed at every epoch. Traditional pipelines push tensors back to the CPU and call SciPy - which is slow and communication-heavy (especially on multi-GPU setups). Our PyTorch-only implementation uses cascaded convolutions, runs on batched data entirely on the GPU, and scales seamlessly with Distributed Data Parallel (DDP).
 
 3. **A variety of loss function**  
-   Pick from pixel-level, region-level, or boundary-aware losses or combine several. You can assign fixed or *learnable* weights to each component, letting you prioritise contour accuracy, global IoU, or any balance in between.
+   Pick from pixel-level, region-level, or boundary-aware losses or combine several. You can assign fixed or learnable weights to each component, letting you prioritise contour accuracy, global IoU, or any balance in between.
 
 4. **Distributed training**  
    Native Distributed Data Parallel (DDP) support enables the use of multiple GPUs for both training and Signed Distane Map (SDM) calculations.
@@ -72,8 +72,8 @@ notebooks/
 saved/
 │   └─exp_N/
 │      ├─run-best.json ------------ # Best epoch metrics
-│      ├─run-log.json ------------- # Full run log
-│      └─run-model.pth ------------ # Best model
+|      ├─run-best.pth ------------- # Best model
+│      └─run-log.json ------------- # Full run log
 │
 utils/
 │   ├─dataset.py ------------------ # PyTorch DataLoaders + train/test split logic
@@ -95,24 +95,26 @@ README.md
 
 This repository expects the training/testing data to be organized in the pre-defined manner described below. Update `DATASET_DIR` in [config.yaml](configs/config.yaml) to point to your dataset root:
 
-* **For Training**:  `train/images` and `train/masks` must exist and contain valid `.png` files.
+* **For Training**:  `dataset/images` and `dataset/masks` must exist and contain valid `.png` files.
 * **For Inference**:  only `predict/images` is required with valid `.png` files.
 
 ```graphql
 dataset/
-   ├───train/
-   │   ├──images/ ---------------------- # Image tiles in .png format
-   │   ├──masks/ ----------------------- # Indexed masks in .png format
-   │   ├──sdms/ ------------------------ # Signed Distance Maps in .npy format 
-   │   ├──tts.json --------------------- # Train/test split dictionary of image IDs
-   │   └──labels.json ------------------ # File containing class labels 
+   ├─images/ ---------------------- # All image tiles in .png format
+   ├─masks/ ----------------------- # All indexed masks in .png format
+   ├─labels.json ------------------ # File containing class labels
+   ├─train/
+   |  ├─images/ ------------------- # Images selected for training
+   |  ├─masks/ -------------------- # Corresponding masks
+   |  ├─sdms/ --------------------- # Signed Distance Maps in .npy format 
+   |  └─tts.json ------------------ # Train/test split dictionary of image IDs
    |
-   └───predict/
-       ├───images/ --------------------- # Images to run inference on
-       └───masks/ ---------------------- # Predicted masks
+   └─predict/
+      ├─images/ ------------------- # Images to run inference on
+      └─masks/ -------------------- # Predicted masks
 ```
 
-> All other assets (`train/sdms/`, `predict/masks/`,  `labels.json` & `tts.json`) are generated automatically at runtime.
+> All other assets (`train/`, `labels.json` & `predict/masks/`) are generated automatically at runtime.
 
 ### Example `labels.json`
 
@@ -145,7 +147,7 @@ Each *image_ID* is assigned a class based on the dominant label in its correspon
 
 ![Alt text](figures/UNet.png)
 
-The layout of the network is similar to that of a UNet with an aditional classification path barnching off at the bottlneck layer. Since network graph in our code is constructed dynamically, the user is free to customize the number of horizontal layers in the UNet or the feature depth of the Conv2D blocks, as well as the number of input channels and output classes.
+The layout of the network is similar to that of a UNet with decoder otuput split into Segmentation and SDM logits and an aditional classification path branching off at the bottlneck layer. Since network graph in our code is constructed dynamically, the user is free to customize the number of horizontal layers in the UNet or the feature depth of the Conv2D blocks, as well as the number of input channels and output classes.
 
 ## :straight_ruler: Signed Distance Transform
 
@@ -157,7 +159,7 @@ This repository delivers a fully-differentiable, GPU-native approximation of Sig
 
 ## :chart_with_downwards_trend: Loss functions
 
-The library ships with a self-contained, GPU-friendly collection of segmentation and classification losses, all exposed through a unified `Loss` wrapper. Core segmentation options include pixel-wise criteria (standard and weighted **BCE**), region-level losses (probabilstic and discrete **DICE**, **IoU**), as well as boundary aware losses (standard and clamped **MAE**, **Boundary Loss** from [Kervadec et al. (2019)](https://doi.org/10.1016/j.media.2020.101851.)). We also provide a custom **Sign** term that penalises distance-map sign errors, and helps overcome some of the limitations of the standard **MAE**. Any subset can be fused together with `CombinedLoss`, which supports fixed or learnable weights, enabling the network to balance multiple objectives during training.
+The library ships with a self-contained, GPU-friendly collection of segmentation and classification losses, all exposed through a unified `Loss` wrapper. Core segmentation options include pixel-wise criteria (standard and weighted **BCE**), region-level losses (probabilstic and discrete **DICE**, **IoU**), as well as boundary aware losses (standard and clamped **MAE**). We also provide a custom **Sign** term that penalises distance-map sign errors, and helps overcome some of the limitations of the standard **MAE**. Any subset can be fused together with `CombinedLoss`, which supports fixed or learnable weights, enabling the network to balance multiple objectives during training.
 
 ## :hammer_and_wrench: Basic Usage
 
@@ -189,6 +191,10 @@ All configurable options, sensible defaults, and variable types are defined in t
    || `UNET_DEPTH` | `int` | Number of down-sampling levels in a UNet (incl. bottleneck) |
    || `CONV_DEPTH` | `int` | Base feature-map depth of the Conv2D block (doubles per level) |
    || `BATCH_SIZE` | `int` | Training batch size |
+   | **Loss** |-----------------------|-------|--------------------------------------------------------------|
+   || `LOSS` | `str` | Loss function used to train the model. Can either be a single loss or a combination of multiple losses, separated by `_` (e.g., `softDICE_BCE`): <br>• `SoftDICE`: Soft (probabilistic) DICE <br>• `HardDICE`: Hard (discrete) DICE <br>• `IoU`: Intersection over Union <br>• `SegCE`: Segmentation Cross-Entropy <br>• `wSegCE`: SDM-weighted Segmentation Cross-Entropy <br>• `ClsCE`: Classification Cross-Entropy <br>• `MAE`: Mean Absolute Error <br>• `cMAE`: Clamped Mean Absolute Error <br>• `sMAE`: Signed Mean Absolute Error|
+   || `CLAMP_DELTA` | `float` | Delta for `cMAE` kernel clamping. Smaller values concentrate the network’s capacity on details near the boundary |
+   || `STATIC_WEIGHTS` | `list` | Manual loss weights (if `ADAPTIVE_WEIGHTS = False`) |
    | **Segmentation** |-----------------------|-------|--------------------------------------------------------------|
    || `SEG_CLASSES` | `int` | Number of segmentation classes |
    || `SEG_DROPOUT` | `float` | Dropout for encoder/decoder |
@@ -206,19 +212,11 @@ All configurable options, sensible defaults, and variable types are defined in t
    || `SDM_KERNEL_SIZE` | `int` | Kernel size for SDM estimation |
    || `SDM_DISTANCE` | `str` | Type of distance used for the SDM. Available options: `manhattan`, `chebyshev`, `euclidean` |
    || `SDM_NORMALIZATION` | `str` | SDM normalisation mode:: <br>• `minmax`: by both max and min distance values of each individual SDM. <br>• `dynamic_max`: by the max distance value of each individual SDM. <br>• `static_max`: by the global max distance value (depends on `SDM_DISTANCE`)|
-   || `SDM_SMOOTHING` | `bool` |  Whether the multi-class SDM is calculated in a smooth or discrete manner |
-   || `SDM_SMOOTHING_ALPHA` | `float` | Smoothing factor for `logsumexp`; only relevant if `SDM_SMOOTHING == True` |
-   | **Loss** |-----------------------|-------|--------------------------------------------------------------|
-   || `LOSS` | `str` | Loss function used to train the model. Can either be a single loss or a combination of multiple losses, separated by `_` (e.g., `softDICE_BCE`): <br>• `SoftDICE`: Soft (probabilistic) DICE <br>• `HardDICE`: Hard (discrete) DICE <br>• `IoU`: Intersection over Union <br>• `SegCE`: Segmentation Cross-Entropy <br>• `wSegCE`: SDM-weighted Segmentation Cross-Entropy <br>• `ClsCE`: Classification Cross-Entropy <br>• `MAE`: Mean Absolute Error <br>• `cMAE`: Clamped Mean Absolute Error <br>• `sMAE`: Signed Mean Absolute Error <br>• `Boundary` |
-   || `ADAPTIVE_WEIGHTS` | `bool` | Auto-balance multi-loss components |
-   || `STATIC_WEIGHTS` | `list` | Manual loss weights (if `ADAPTIVE_WEIGHTS = False`) |
-   || `CLAMP_DELTA` | `float` | Delta for `cMAE` kernel clamping. Smaller values concentrate the network’s capacity on details near the boundary |
-   || `SIGMOID_STEEPNESS` | `int` | Sigmoid steepness for `DICE`/`IoU`/`sMAE` losses. Higher values yield a steeper curve and a closer approximation of the step function |
    | **Evaluation** |-----------------------|-------|--------------------------------------------------------------|
-   || `SAVE_MODEL` | `bool` | Save best model checkpoint |
+   || `CHECKPOINT_INTERVAL` | `int` | Freqeuncy of saving model checkpoints |
    || `EVAL_METRIC` | `str` | Best epoch selection metric: <br>• `TTR`: True-to-test ratio. Measures classification accuracy <br>• `DSC`: DICE score. Measures global overlap <br>• `IoU`: Intersection over Union score. Measures global overlap, but penalizes false positives more harshly <br>• `ASD`: Average Symmetric Distance. Measures the mean distance between the boundaries of ground-truth and predicted segmentations <br>• `AD`: Average one-way Distance. Relaxes the impact of false-positives <br>• `HD95`: Hausdorff Distance 95th percentile. Measures the worst-case boundary discrepancy <br>• `D95`: One-way Distance 95th percentile. Relaxes the impact of false-positives  <br>• `CMA`: Combined Mean Accuracy. A weighted combination of the above |
    || `CMA_COEFFICIENTS` | `dict` | Coefficients that define the contribution of each metric to the overall `CMA` |
-   || `DISTANCE_METRICS` | `bool` | Compute `ASD`, `AD`, `HD95`, `D95` during eval |
+   || `SDM_FROM_MASK` | `bool` | Whether to derive the SDMs from the segmentation mask, or directly from the SDM logits |
    | **DDP** |-----------------------|-------|--------------------------------------------------------------|
    || `GPUs` | `list` | GPU indices for DDP |
    || `MASTER_ADDR` | `str` | Address of the master node |
@@ -246,15 +244,15 @@ All configurable options, sensible defaults, and variable types are defined in t
    [WARM] Warming up for 10 epochs ...
    [TRAIN] Training for 200 epochs ...
    Epoch 1/200 > ETC: 46.0m (14.0s / epoch)
-            Loss   | ↑ TTR  | ↑ DSC  | ↑ IoU  | ↓ ASD  | ↓ AD   | ↓ HD95 | ↓ D95  | ↑ CMA  |
-   Train -> 0.4786 | 0.9898 | 0.7887 | 0.6561 | 0.2615 | 0.1391 | 0.5675 | 0.2426 | 0.7611 |
-   Test  -> 0.1691 | 1.0000 | 0.8557 | 0.7520 | 0.2291 | 0.1107 | 0.5086 | 0.2027 | 0.8169 |
-   ----------------------------------------------------------------------------------------+
+            Loss   | ↑ TTR  | ↑ DSC  | ↑ IoU  | ↓ ASD  | ↓ HD95 | ↑ CMA  |
+   Train -> 0.4786 | 0.9898 | 0.7887 | 0.6561 | 0.1391 | 0.2426 | 0.7611 |
+   Test  -> 0.1691 | 1.0000 | 0.8557 | 0.7520 | 0.1107 | 0.2027 | 0.8169 |
+   ----------------------------------------------------------------------+
    Epoch 2/200 > ETC: 45.0m (14.0s / epoch)
-            Loss   | ↑ TTR  | ↑ DSC  | ↑ IoU  | ↓ ASD  | ↓ AD   | ↓ HD95 | ↓ D95  | ↑ CMA  |
-   Train -> 0.2148 | 0.9885 | 0.8056 | 0.6786 | 0.2479 | 0.1399 | 0.5543 | 0.2379 | 0.7741 |
-   Test  -> 0.1523 | 1.0000 | 0.8691 | 0.7734 | 0.1905 | 0.1041 | 0.4502 | 0.2017 | 0.8370 |
-   ----------------------------------------------------------------------------------------+
+            Loss   | ↑ TTR  | ↑ DSC  | ↑ IoU  | ↓ ASD  | ↓ HD95 | ↑ CMA  |
+   Train -> 0.2148 | 0.9885 | 0.8056 | 0.6786 | 0.1399 | 0.2379 | 0.7741 |
+   Test  -> 0.1523 | 1.0000 | 0.8691 | 0.7734 | 0.1041 | 0.2017 | 0.8370 |
+   ----------------------------------------------------------------------+
    ```
 
    Alternatively the user can launch training programmatically:

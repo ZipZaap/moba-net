@@ -134,6 +134,11 @@ LOSS:
     Classification branch:
       * ClsCE: Classification Cross-Entropy loss
 
+CLAMP_DELTA:
+  default: 0.2
+  type: float
+  help: Clamping delta applied to the SDM kernel when calculating `cMAE` loss.
+
 STATIC_WEIGHTS:
   default: null
   type: list
@@ -149,12 +154,6 @@ SEG_DROPOUT:
   default: 0.1
   type: float
   help: Dropout value for the decoder/encoder in segmentation branch.
-
-# --- SDM Branch --- #
-CLAMP_DELTA:
-  default: 0.2
-  type: float
-  help: Clamping delta applied to the SDM kernel when calculating `cMAE` loss.
 
 # --- Classification Branch --- #
 CLS_CLASSES:

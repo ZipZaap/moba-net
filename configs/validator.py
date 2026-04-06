@@ -12,27 +12,28 @@ class Validator:
         "list": list,
         "dict": dict,
     }
+    
 
     @classmethod
     def validate_cfg(cls, cfg_dict: dict[str, dict], inference: bool):
         """
         Validates the configuration parameters specified in `cfg_dict`.
 
-        Args
-        ----
-            cfg_dict : dict[str, dict]
-                Dictionary containing configuration parameters and their values.
+        Parameters
+        ----------
+        cfg_dict : dict[str, dict]
+            Dictionary containing configuration parameters and their values.
 
-            inference : bool
-                If True, the configuration is for inference mode.
+        inference : bool
+            If True, the configuration is for inference mode.
 
         Raises
         ------
-            TypeError
-                If the type of a parameter does not match the expected type.
+        TypeError
+            If the type of a parameter does not match the expected type.
 
-            ValueError
-                If the value of a parameter fails the built-in tests.
+        ValueError
+            If the value of a parameter fails the built-in tests.
         """
 
         # simplify the cfg_dict to a SimpleNamespace object, keeping only the default values
@@ -289,17 +290,31 @@ class Validator:
                     "Value conflict between `LOSS` and `TEST_SET`! "
                     "ClsCE loss cannot be tested with `boundary` dataset, use `full` dataset instead."
                 )
-        # if sdm_losses & loss_set:
-        #     if cls.cfg.TRAIN_SET == "full":
-        #         raise ValueError(
-        #             "Value conflict between `LOSS` and `TRAIN_SET`! "
-        #             "SDM-based losses cannot be trained with `full` dataset, use `boundary` dataset instead."
-        #         )
-        #     if cls.cfg.TEST_SET == "full":
-        #         raise ValueError(
-        #             "Value conflict between `LOSS` and `TEST_SET`! "
-        #             "SDM-based losses cannot be tested with `full` dataset, use `boundary` dataset instead."
-        #         )
+                
+        if not sdm_losses & loss_set and cls.cfg.SDM_FROM_MASK:
+            raise ValueError(
+                "Value conflict between `LOSS` and `SDM_FROM_MASK`! "
+                "If `SDM_FROM_MASK == True`, at least one SDM-based loss must be included in the loss term."
+            )
+    
+    @classmethod
+    def _validate_clamp_delta(cls, value, options):
+        if not 0 < value < 1:
+            raise ValueError("Value of `CLAMP_DELTA` must be between 0 and 1.")
+
+    @classmethod
+    def _validate_static_weights(cls, value, options):
+        if len(cls.cfg.LOSS) > 1:
+            if value:
+                if len(value) != len(cls.cfg.LOSS):
+                    raise ValueError(
+                        "`STATIC_WEIGHTS` must be the same length as the number of loss functions in `LOSS`."
+                    )
+            else:
+                print(
+                    "[WARN] Training with multiple losses & `STATIC_WEIGHTS == null`; "
+                    "Adaptive loss weighting will be used."
+                )
 
     @classmethod
     def _validate_seg_classes(cls, value, options):
@@ -312,11 +327,6 @@ class Validator:
     def _validate_seg_dropout(cls, value, options):
         if value is None or not 0 <= value <= 1:
             raise ValueError("Value of `SEG_DROPOUT` must be between 0 and 1.")
-
-    @classmethod
-    def _validate_clamp_delta(cls, value, options):
-        if not 0 < value < 1:
-            raise ValueError("Value of `CLAMP_DELTA` must be between 0 and 1.")
 
     @classmethod
     def _validate_cls_classes(cls, value, options):
@@ -337,20 +347,6 @@ class Validator:
             raise ValueError(
                 "Value of `CLS_THRESHOLD` must either be `null` for no thresholding or greater than 0."
             )
-
-    @classmethod
-    def _validate_static_weights(cls, value, options):
-        if len(cls.cfg.LOSS) > 1:
-            if value:
-                if len(value) != len(cls.cfg.LOSS):
-                    raise ValueError(
-                        "`STATIC_WEIGHTS` must be the same length as the number of loss functions in `LOSS`."
-                    )
-            else:
-                print(
-                    "[WARN] Training with multiple losses & `STATIC_WEIGHTS == null`; "
-                    "Adaptive loss weighting will be used."
-                )
 
     # --- OPTIMIZER SETTINGS ---
     @classmethod
